@@ -2,6 +2,7 @@ package urlshort
 
 import (
 	out "fmt"
+	"github.com/boltdb/bolt"
 	"gopkg.in/yaml.v2"
 	"net/http"
 )
@@ -34,16 +35,33 @@ func YAMLHandler(yml []byte, fallback http.Handler) (http.HandlerFunc, error) {
 }
 
 func MapHandler(paths map[string]string, fallback http.Handler) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path, ok := paths[r.URL.Path]
+	get := func(p string) (string, bool) {
+		path, ok := paths[p]
+		return path, ok
+	}
+
+	return http.HandlerFunc(makefunction(get, fallback))
+}
+
+func BoltHandler(fallback http.Handler) http.HandlerFunc {
+	return http.HandlerFunc(makefunction(getFromBolt, fallback))
+}
+
+func getFromBolt(path string) (url string, ok bool) {
+
+	return "", false
+}
+
+func makefunction(get func(string) (string, bool), fallback http.Handler) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path, ok := get(r.URL.Path)
 		if ok {
 			http.Redirect(w, r, path, http.StatusSeeOther)
 		} else {
 			fallback.ServeHTTP(w, r)
 		}
-	})
+	}
 }
-
 func parseyml(yml []byte) (map[string]string, error) {
 	var paths []YamlMapping // mapping to an array without super type
 	err := yaml.Unmarshal(yml, &paths)
