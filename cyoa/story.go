@@ -3,14 +3,27 @@ package cyoa
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 )
 
 const (
-	start = "intro"
+	start        = "intro"
+	jsonProvider = "json"
 )
+
+var (
+	storyproviders_ = make(map[string]func(string) (Story, error))
+	log             = fmt.Println
+)
+
+func init() {
+
+	storyproviders_[jsonProvider] = fromfile
+}
 
 /**
 "intro": {
@@ -33,13 +46,13 @@ const (
 }
 */
 type Arc struct {
-	text      string
-	PageTitle string // points to Page.Title
+	Text string `json:"text"`
+	Arc  string `json:"arc"` // points to Page.Title
 }
 type Page struct {
-	Title   string
-	Story   string
-	options []Arc
+	Title   string   `json:"title"`
+	Story   []string `json:"story"`
+	Options []Arc    `json:"options"`
 }
 
 type Story interface {
@@ -48,74 +61,122 @@ type Story interface {
 
 type GlobalStory struct{} // this is a story that is a list of all stories
 
-type JsonStory struct {
-	pages map[string]*Page
+type JsonStory map[string]Page
+
+func getstoryfile(name string) string {
+	return "./stories/" + name + ".json"
 }
 
-func (story *JsonStory) fromfile(jsonfile string) (Story, error) {
-	bytes, err := ioutil.ReadFile(jsonfile)
+func fromfile(jsonfile string) (Story, error) {
+	filename := getstoryfile(jsonfile)
+	if !fileexists(filename) {
+		log("could not find story by name: " + filename)
+		panic("no story")
+	}
+
+	bytes, err := ioutil.ReadFile(filename)
 	check(err)
 
-	return story.create(bytes)
-}
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
+	return createJsonStory(bytes)
 }
 
-func (story *JsonStory) create(jsonbytes []byte) (Story, error) {
+func fileexists(filename string) bool {
+	if _, err := os.Stat("./" + filename); err == nil {
+		return true
+	}
+	return false
+}
+
+func createJsonStory(jsonbytes []byte) (Story, error) {
 	// load json here
-	err := json.Unmarshal(jsonbytes, story)
+	story := JsonStory{}
+	err := json.Unmarshal(jsonbytes, &story)
 	check(err)
 
 	// check if the initial page exists
-	_, ok := story.pages[start]
+
+	log(story)
+
+	_, ok := story[start]
 	if !ok {
 		return nil, errors.New("Story does not contain initial node")
 	}
 
-	return story, nil
+	return &story, nil
 }
 
-func (story *GlobalStory) get(pageTitle string) *Page {
+func (story GlobalStory) get(pageTitle string) *Page {
 	// a story that has links to all the currently defined stories. 'landing page'
 	return nil
 }
 
-func (story *JsonStory) get(pageTitle string) *Page {
-	page, ok := story.pages[pageTitle]
+func (story JsonStory) get(pageTitle string) *Page {
+	page, ok := story[pageTitle]
 	if !ok {
-		page = story.pages[start]
+		page = story[start]
 	}
 
-	return page
+	return &page
 }
 
 type StoryHandler struct {
+	Datasource string
 }
 
 func (handler StoryHandler) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {
 	storyname, pagetitle := split(rq.URL.Path)
+	if storyname == "" {
+		return
+	}
 
-	story := getstory(storyname)
-	page := (*story).get(pagetitle)
-
-	render(&rw, page)
+	f := storyproviders_[handler.Datasource]
+	if f != nil {
+		story, err := f(storyname)
+		if err == nil {
+			page := story.get(pagetitle)
+			if page != nil {
+				render(rw, page)
+			}
+		}
+	}
+	handleerror(rw, rq)
 }
 
-func render(rw *http.ResponseWriter, page *Page) {
+func render(rw http.ResponseWriter, page *Page) {
+
+	rw.Write([]byte("title: " + page.Title + "\n"))
+
+	for _, s := range page.Story {
+		rw.Write([]byte("story: " + s + "\n"))
+	}
+	for _, a := range page.Options {
+		rw.Write([]byte("title: " + a.Arc + "\n"))
+		rw.Write([]byte("title: " + a.Text + "\n"))
+	}
 
 }
 
-func getstory(storyname string) *Story {
+func handleerror(rw http.ResponseWriter, rq *http.Request) {
+	rw.Write([]byte("error"))
+}
+
+func getstory(storyname string) Story {
 	return nil
 }
 
 func split(path string) (string, string) {
 	s := strings.Split(path, "/")
-	if len(s) >= 2 {
+
+	log(s, len(s))
+
+	if len(s) >= 3 {
 		return s[1], s[2]
 	}
 	return "", ""
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
 }
