@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/michaldzirba/gophercises/cyoa"
+	"log"
 	"net/http"
 )
 
@@ -14,7 +14,6 @@ const (
 
 var (
 	address_    = defaultaddress
-	log         = fmt.Println
 	datasource_ = defaultDataSource
 )
 
@@ -32,6 +31,6 @@ func main() {
 	// resolves a story_name from sories folder
 	// this is parsed to a Story, maybe cashed
 	// story is passed to a template engine to be randered, and returned to a browser
-	log("running server at", address_)
-	http.ListenAndServe(address_, cyoa.StoryHandler{datasource_})
+	log.Println("running server at", address_)
+	log.Fatal(http.ListenAndServe(address_, cyoa.StoryHandler{datasource_}))
 }

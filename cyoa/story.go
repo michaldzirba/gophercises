@@ -3,8 +3,9 @@ package cyoa
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"html/template"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -17,34 +18,14 @@ const (
 
 var (
 	storyproviders_ = make(map[string]func(string) (Story, error))
-	log             = fmt.Println
+	pagetemplate_   *template.Template
 )
 
 func init() {
-
 	storyproviders_[jsonProvider] = fromfile
+	pagetemplate_ = template.Must(template.ParseFiles("templates/html.template"))
 }
 
-/**
-"intro": {
-  "title": "The Little Blue Gopher",
-  "story": [
-    "Once upon a time, long long ago, there was a little blue gopher. Our little blue friend wanted to go on an adventure, but he wasn't sure where to go. Will you go on an adventure with him?",
-    "One of his friends once recommended going to New York to make friends at this mysterious thing called \"GothamGo\". It is supposed to be a big event with free swag and if there is one thing gophers love it is free trinkets. Unfortunately, the gopher once heard a campfire story about some bad fellas named the Sticky Bandits who also live in New York. In the stories these guys would rob toy stores and terrorize young boys, and it sounded pretty scary.",
-    "On the other hand, he has always heard great things about Denver. Great ski slopes, a bad hockey team with cheap tickets, and he even heard they have a conference exclusively for gophers like himself. Maybe Denver would be a safer place to visit."
-  ],
-  "options": [
-    {
-      "text": "That story about the Sticky Bandits isn't real, it is from Home Alone 2! Let's head to New York.",
-      "arc": "new-york"
-    },
-    {
-      "text": "Gee, those bandits sound pretty real to me. Let's play it safe and try our luck in Denver.",
-      "arc": "denver"
-    }
-  ]
-}
-*/
 type Arc struct {
 	Text string `json:"text"`
 	Arc  string `json:"arc"` // points to Page.Title
@@ -70,7 +51,7 @@ func getstoryfile(name string) string {
 func fromfile(jsonfile string) (Story, error) {
 	filename := getstoryfile(jsonfile)
 	if !fileexists(filename) {
-		log("could not find story by name: " + filename)
+		log.Println("could not find story by name: " + filename)
 		panic("no story")
 	}
 
@@ -95,8 +76,6 @@ func createJsonStory(jsonbytes []byte) (Story, error) {
 
 	// check if the initial page exists
 
-	log(story)
-
 	_, ok := story[start]
 	if !ok {
 		return nil, errors.New("Story does not contain initial node")
@@ -105,17 +84,21 @@ func createJsonStory(jsonbytes []byte) (Story, error) {
 	return &story, nil
 }
 
-func (story GlobalStory) get(pageTitle string) *Page {
+func (story GlobalStory) get(page string) *Page {
+	log.Fatal(" no global story, so far")
 	// a story that has links to all the currently defined stories. 'landing page'
 	return nil
 }
 
-func (story JsonStory) get(pageTitle string) *Page {
-	page, ok := story[pageTitle]
+func (story JsonStory) get(pageid string) *Page {
+	page, ok := story[pageid]
 	if !ok {
+		log.Fatal("no page by name [", pageid, "] looking for [", start, "]")
+		for x, _ := range story {
+			log.Println("available: ", x, "]")
+		}
 		page = story[start]
 	}
-
 	return &page
 }
 
@@ -129,35 +112,30 @@ func (handler StoryHandler) ServeHTTP(rw http.ResponseWriter, rq *http.Request) 
 		return
 	}
 
-	f := storyproviders_[handler.Datasource]
-	if f != nil {
+	f, ok := storyproviders_[handler.Datasource]
+	if !ok {
+		handleerror(rw, errors.New("no provider"))
+	} else {
 		story, err := f(storyname)
-		if err == nil {
+		if err != nil {
+			handleerror(rw, err)
+		} else {
 			page := story.get(pagetitle)
 			if page != nil {
-				render(rw, page)
+				err := pagetemplate_.Execute(rw, page)
+				if err != nil {
+					handleerror(rw, err)
+				}
 			}
 		}
 	}
-	handleerror(rw, rq)
 }
 
-func render(rw http.ResponseWriter, page *Page) {
-
-	rw.Write([]byte("title: " + page.Title + "\n"))
-
-	for _, s := range page.Story {
-		rw.Write([]byte("story: " + s + "\n"))
+func handleerror(rw http.ResponseWriter, err error) {
+	if err != nil {
+		log.Fatal(err)
+		rw.Write([]byte(err.Error()))
 	}
-	for _, a := range page.Options {
-		rw.Write([]byte("title: " + a.Arc + "\n"))
-		rw.Write([]byte("title: " + a.Text + "\n"))
-	}
-
-}
-
-func handleerror(rw http.ResponseWriter, rq *http.Request) {
-	rw.Write([]byte("error"))
 }
 
 func getstory(storyname string) Story {
@@ -167,16 +145,15 @@ func getstory(storyname string) Story {
 func split(path string) (string, string) {
 	s := strings.Split(path, "/")
 
-	log(s, len(s))
-
 	if len(s) >= 3 {
 		return s[1], s[2]
 	}
 	return "", ""
 }
 
-func check(e error) {
-	if e != nil {
-		panic(e)
+func check(err error) {
+	if err != nil {
+		log.Fatal(err)
+		panic(err)
 	}
 }

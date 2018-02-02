@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<title>{{.Title}}</title>
+	</head>
+  <body>
+		{{range .Story}}<div>{{ . }}</div>{{else}}<div><strong>Well, you should not be here, should you ?</strong></div>{{end}}
+		{{range .Options}}<div><a href="{{ .Arc }}">{{ .Text }}</a></div>{{else}}<div><strong>The end</strong></div>{{end}}
+	</body>
+</html>
